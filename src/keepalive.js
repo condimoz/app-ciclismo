@@ -1,6 +1,6 @@
 // Tenta manter a página viva com a tela bloqueada: um áudio inaudível em loop
 // (o Chrome não suspende abas que tocam mídia) + sessão de mídia na notificação.
-// Melhor esforço: o Bluetooth pode ser cortado pelo sistema mesmo assim.
+// Melhor esforço: o sistema ainda pode suspender a página com a tela bloqueada.
 let el;
 
 function silentWav(sec = 2, rate = 8000) {
@@ -30,7 +30,7 @@ export function startKeepAlive(title = 'Treino em andamento') {
     el ??= Object.assign(new Audio(URL.createObjectURL(silentWav())), { loop: true, volume: 1 });
     el.play().catch(() => {});
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({ title, artist: 'FC Ciclismo' });
+      navigator.mediaSession.metadata = new MediaMetadata({ title, artist: 'Tiros' });
       navigator.mediaSession.playbackState = 'playing';
     }
   } catch {}
