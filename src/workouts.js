@@ -92,6 +92,63 @@ export const WORKOUTS = [
     },
   },
   {
+    id: 't3i',
+    name: 'Tipo 3 · Tiros em subida (4×6)',
+    desc: 'Tiros por FC; recuperação aberta com aviso de "pode ir".',
+    params: [
+      { key: 'reps', label: 'Tiros', def: 4, min: 1, max: 8 },
+      { key: 'min', label: 'Tiro (min)', def: 6, min: 2, max: 10 },
+      { key: 'warm', label: 'Aquecimento previsto (min)', def: 10, min: 4, max: 30 },
+      { key: 'recMax', label: 'Recuperação: desistir após (min)', def: 5, min: 2, max: 15 },
+      { key: 'z2', label: 'Z2 final (min)', def: 15, min: 5, max: 40 },
+    ],
+    build: (p, s) => {
+      const steps = [
+        {
+          ...warm(s),
+          // nos últimos 2 min do aquecimento previsto a FC pode subir até warmRelaxTo
+          relax: { afterSec: Math.max(0, p.warm - 2) * 60, hi: s.warmRelaxTo },
+        },
+      ];
+      for (let i = 1; i <= p.reps; i++) {
+        const last = i === p.reps;
+        steps.push({
+          name: `Tiro ${i}/${p.reps}`,
+          kind: 'time',
+          durationSec: Math.round(p.min * 60),
+          target: s.climbWork,
+          ceiling: s.sprintCeiling,
+          ceilingEveryMs: 3000,
+          alertHigh: false,
+          lowGraceSec: 60,
+          lowHoldSec: 20,
+          // no último tiro, se a FC nunca chegou ao piso, pula a recuperação e vai ao Z2
+          ...(last ? { mustReach: s.climbWork[0], exitTo: 'z2', exitText: 'FC não chegou ao alvo, vá para o Z2' } : {}),
+        });
+        steps.push({
+          name: `Recuperação ${i}/${p.reps}`,
+          kind: 'open',
+          target: [0, s.recoveryBelow],
+          alertLow: false,
+          alertHigh: false,
+          ready: { below: s.recoveryBelow, holdSec: s.readyHoldSec, text: 'Pode ir' },
+          // não desceu do limite em recMax min: encerra os tiros
+          ...(last ? {} : { giveUpSec: p.recMax * 60, exitTo: 'z2', exitText: 'FC não desceu, vá para o Z2' }),
+        });
+      }
+      steps.push({
+        ...body(s, p.z2),
+        id: 'z2',
+        highGraceSec: 0,
+        highHoldSec: 15,
+        lowGraceSec: 0,
+        lowHoldSec: 15,
+      });
+      steps.push(cool(s));
+      return { sport: 'Biking', steps, reminders: [] };
+    },
+  },
+  {
     id: 't4',
     name: 'Tipo 4 · Rodagem longa',
     desc: 'Corpo longo em Z2. Lembra da banana passa aos 60 min.',

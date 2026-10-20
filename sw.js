@@ -1,5 +1,5 @@
 // Rede primeiro, cache como reserva (o app continua abrindo sem internet).
-const CACHE = 'fc-v1';
+const CACHE = 'fc-v2';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {

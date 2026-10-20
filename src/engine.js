@@ -65,8 +65,9 @@ export class Engine {
       }
     } else {
       this.lostSince = null;
-      if (hr > s.ceiling) {
-        if (this._can('ceiling', now, 8000)) {
+      this._peak = Math.max(this._peak ?? 0, hr);
+      if (hr > (st.ceiling ?? s.ceiling)) {
+        if (this._can('ceiling', now, st.ceilingEveryMs ?? 8000)) {
           events.push({ type: 'alert', level: 'ceiling', text: 'Acima do teto, alivie' });
         }
       } else if (st.act && hr >= st.act) {
@@ -74,12 +75,14 @@ export class Engine {
           events.push({ type: 'alert', level: 'act', text: st.actText || 'Alivie' });
         }
       } else if (st.target) {
-        const [lo, hi] = st.target;
+        const lo = st.target[0];
+        let hi = st.target[1];
+        if (st.relax && inStep >= st.relax.afterSec) hi = st.relax.hi;
         if (hr > hi && st.alertHigh !== false) {
           this.highSince ??= now;
           if (
             inStep >= (st.highGraceSec ?? 10) &&
-            now - this.highSince >= 5000 &&
+            now - this.highSince >= (st.highHoldSec ?? 5) * 1000 &&
             this._can('high', now, 15000)
           ) {
             events.push({ type: 'alert', level: 'high', text: 'FC alta' });
@@ -87,13 +90,10 @@ export class Engine {
         } else {
           this.highSince = null;
         }
-        if (hr < lo && st.alertLow !== false) {
+        // a contagem de "baixa" só começa depois da carência
+        if (hr < lo && st.alertLow !== false && inStep >= (st.lowGraceSec ?? 45)) {
           this.lowSince ??= now;
-          if (
-            inStep >= (st.lowGraceSec ?? 45) &&
-            now - this.lowSince >= 20000 &&
-            this._can('low', now, 25000)
-          ) {
+          if (now - this.lowSince >= (st.lowHoldSec ?? 20) * 1000 && this._can('low', now, 25000)) {
             events.push({ type: 'alert', level: 'low', text: 'FC baixa' });
           }
         } else {
@@ -101,18 +101,38 @@ export class Engine {
         }
       }
 
-      if (st.kind === 'recovery') {
-        if (hr < st.below) {
+      if (st.kind === 'recovery' || st.ready) {
+        const below = st.kind === 'recovery' ? st.below : st.ready.below;
+        const hold = st.kind === 'recovery' ? st.holdSec : st.ready.holdSec;
+        if (hr < below) {
           this.belowSince ??= now;
-          if (now - this.belowSince >= st.holdSec * 1000) this._advance(now, events);
+          if (now - this.belowSince >= hold * 1000) {
+            this.reachedBelow = true;
+            if (st.kind === 'recovery') this._advance(now, events, true);
+            else if (!this.readyFired) {
+              this.readyFired = true;
+              events.push({ type: 'alert', level: 'ready', text: st.ready.text || 'Pode ir' });
+            }
+          }
         } else {
           this.belowSince = null;
+          this.readyFired = false;
         }
       }
     }
 
-    if (!this.done && st === this.step && st.kind === 'time' && inStep >= st.durationSec) {
-      this._advance(now, events);
+    if (!this.done && st === this.step) {
+      if (st.kind === 'time') {
+        const n = Math.ceil(st.durationSec - inStep);
+        if (n >= 1 && n <= 10 && n < (this.lastCount ?? 11)) {
+          this.lastCount = n;
+          events.push({ type: 'countdown', n });
+        }
+        if (inStep >= st.durationSec) this._advance(now, events, true);
+      } else if (st.giveUpSec != null && !this.reachedBelow && inStep >= st.giveUpSec) {
+        // recuperação que não desce: encerra os tiros
+        this._advance(now, events, true, true);
+      }
     }
     return events;
   }
@@ -123,12 +143,23 @@ export class Engine {
     return true;
   }
 
-  _advance(now, events) {
-    if (this.idx + 1 >= this.steps.length) {
+  // auto: avanço por tempo/condição (não pelo botão). abort: força o salto de saída.
+  _advance(now, events, auto = false, abort = false) {
+    const st = this.step;
+    events.push({ type: 'stepEnd', idx: this.idx, step: st });
+    let to = this.idx + 1;
+    if (st.exitTo && (abort || (auto && st.mustReach != null && (this._peak ?? 0) < st.mustReach))) {
+      const j = this.steps.findIndex((x) => x.id === st.exitTo);
+      if (j > to) {
+        to = j;
+        events.push({ type: 'abort', text: st.exitText || 'Tiros encerrados, vá para o Z2' });
+      }
+    }
+    if (to >= this.steps.length) {
       this.done = true;
       events.push({ type: 'done' });
     } else {
-      this._enter(this.idx + 1, now, events);
+      this._enter(to, now, events);
     }
   }
 
@@ -138,6 +169,10 @@ export class Engine {
     this.belowSince = null;
     this.highSince = null;
     this.lowSince = null;
+    this.lastCount = undefined;
+    this.readyFired = false;
+    this.reachedBelow = false;
+    this._peak = undefined;
     events.push({ type: 'step', idx, step: this.steps[idx] });
   }
 }

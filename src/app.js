@@ -4,6 +4,7 @@ import { WORKOUTS, defaultParams } from './workouts.js';
 import { Engine } from './engine.js';
 import { connectHR } from './ble.js';
 import { toCSV, toTCX } from './export.js';
+import { startKeepAlive, stopKeepAlive } from './keepalive.js';
 import { timeInZone, summarize, drift } from './stats.js';
 
 const root = document.getElementById('app');
@@ -36,6 +37,16 @@ const fmt = (sec) => {
   const mm = String(m).padStart(h ? 2 : 1, '0');
   return `${h ? h + ':' : ''}${mm}:${String(s).padStart(2, '0')}`;
 };
+const TARGET_LABEL = { below: 'ABAIXO DO ALVO', in: 'NO ALVO', above: 'ACIMA DO ALVO' };
+// abaixo / dentro / acima da faixa do passo (considera o relaxamento do aquecimento e o teto do passo)
+function targetState(hr, st, settings, elapsed = 0) {
+  if (hr == null || !st.target) return null;
+  const lo = st.target[0];
+  const hi = st.relax && elapsed >= st.relax.afterSec ? st.relax.hi : st.target[1];
+  if (hr < lo) return 'below';
+  if (hr > hi || hr > (st.ceiling ?? settings.ceiling)) return 'above';
+  return 'in';
+}
 const range = (t) => (t ? (t[0] === 0 ? `abaixo de ${t[1]}` : `${t[0]}–${t[1]}`) + ' bpm' : '');
 
 // ---------- áudio, voz e vibração ----------
@@ -52,10 +63,13 @@ const PATTERNS = {
   ceiling: { tones: [[1000, 0.12, 0], [1000, 0.12, 0.2], [1000, 0.12, 0.4]], vib: [200, 100, 200, 100, 200] },
   act: { tones: [[1000, 0.12, 0], [1000, 0.12, 0.2]], vib: [200, 100, 200] },
   step: { tones: [[660, 0.12, 0], [880, 0.18, 0.15]], vib: [120, 80, 250] },
+  end: { tones: [[880, 0.12, 0], [520, 0.2, 0.15]], vib: [250] },
+  tick: { tones: [[1200, 0.06, 0]], vib: [40] },
+  ready: { tones: [[784, 0.12, 0], [988, 0.12, 0.15], [1319, 0.25, 0.3]], vib: [100, 60, 100, 60, 300] },
   info: { tones: [[700, 0.15, 0], [900, 0.15, 0.2]], vib: [200] },
   lost: { tones: [[300, 0.2, 0], [300, 0.2, 0.3]], vib: [300, 100, 300] },
 };
-function signal(kind, text) {
+function signal(kind, text, delay = 0) {
   const p = PATTERNS[kind] || PATTERNS.info;
   if (actx) {
     for (const [f, d, at] of p.tones) {
@@ -65,7 +79,7 @@ function signal(kind, text) {
       g.gain.value = 0.3;
       o.connect(g);
       g.connect(actx.destination);
-      const t = actx.currentTime + at;
+      const t = actx.currentTime + at + delay;
       o.start(t);
       o.stop(t + d);
     }
@@ -162,6 +176,7 @@ function startWorkout(w, params) {
   S.view = 'session';
   unlockAudio();
   keepAwake(true);
+  startKeepAlive(w.name);
   render();
   handleEvents(S.engine.start(now), now);
   S.timer = setInterval(tick, 1000);
@@ -180,14 +195,21 @@ function tick() {
 
 function handleEvents(events, now) {
   for (const ev of events) {
-    if (ev.type === 'step') {
+    if (ev.type === 'stepEnd') {
+      signal('end');
+    } else if (ev.type === 'countdown') {
+      signal('tick');
+    } else if (ev.type === 'abort') {
+      S.bannerUntil = now + 10000;
+      S.banner = ev.text;
+    } else if (ev.type === 'step') {
       const laps = S.session.laps;
       if (laps.length) laps.at(-1).end = now;
       laps.push({ idx: ev.idx, name: ev.step.name, start: now, end: null });
       const spoken = ev.step.target ? `${ev.step.name}. ${range(ev.step.target).replace('–', ' a ')}` : ev.step.name;
-      signal('step', spoken);
+      signal('step', spoken, 0.5);
     } else if (ev.type === 'alert') {
-      S.bannerUntil = now + 6000;
+      S.bannerUntil = now + (ev.level === 'ready' ? 10000 : 6000);
       S.banner = ev.text;
       signal(ev.level, ev.text);
     } else if (ev.type === 'reminder') {
@@ -210,6 +232,7 @@ function finish() {
   if (s.laps.length && s.laps.at(-1).end == null) s.laps.at(-1).end = now;
   saveLast();
   keepAwake(false);
+  stopKeepAlive();
   signal('info', 'Treino concluído');
   S.summary = s;
   S.view = 'summary';
@@ -341,7 +364,7 @@ function renderSession() {
     <div class="timer" id="sTimer"></div>
     <div class="next" id="sNext"></div>
     <div class="banner" id="sBanner" hidden></div>
-    <div class="btns"><button class="big" data-act="next">PRÓXIMO ▶</button><button class="small" data-act="end">Encerrar</button></div>
+    <div class="btns"><button class="big" data-act="next">Próxima etapa ▶</button><button class="small" data-act="end">Encerrar</button></div>
   </div>`;
   bind();
   paintLive();
@@ -359,17 +382,19 @@ function paintLive() {
   if (S.view === 'session' && $('sBpm') && S.engine) {
     const e = S.engine.status(now);
     const st = e.step;
-    $('sess').className = `sess z-${z ?? 'none'}`;
+    const ts = targetState(hr, st, S.settings, e.stepElapsed);
+    $('sess').className = `sess ${ts ? 't-' + ts : 'z-' + (z ?? 'none')}`;
     $('sBpm').textContent = hr ?? '--';
-    $('sZone').textContent = z ? ZONE_LABEL[z] : 'sem sinal';
+    $('sZone').textContent = hr == null ? 'sem sinal' : ts ? TARGET_LABEL[ts] : ZONE_LABEL[z];
     $('sStep').textContent = st.name;
     $('sTotal').textContent = fmt(e.total);
     $('sTarget').textContent = range(st.target);
+    const hold = st.kind === 'recovery' ? st.holdSec : st.ready?.holdSec;
     $('sTimer').textContent =
       st.kind === 'time'
         ? `restam ${fmt(e.remaining)}`
-        : st.kind === 'recovery'
-          ? `estável ${Math.floor(e.held)}/${st.holdSec}s`
+        : hold
+          ? `${fmt(e.stepElapsed)} · estável ${Math.min(hold, Math.floor(e.held))}/${hold}s`
           : fmt(e.stepElapsed);
     $('sNext').textContent = e.next ? `a seguir: ${e.next.name}` : 'último passo';
     const b = $('sBanner');

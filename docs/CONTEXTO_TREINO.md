@@ -16,6 +16,9 @@ FC máxima e limiar ainda **não medidos**: as faixas abaixo são provisórias.
 - Tipo 1, rodagem: aquecimento + 50-65 min Z2 + volta calma
 - Tipo 2, intervalo curto: 4x (3 min a 150-163 / recuperação até FC < 135)
 - Tipo 3, subida longa: 3x (5-8 min a 145-158; agir ao cruzar 160) + 15-25 min Z2 extra
+- Tipo 3 · tiros em subida (4×6): aquecimento aberto (112-125; últimos 2 min do previsto até 135) +
+  4×(tiro 6 min a 145-158, teto 160 / recuperação aberta, "pode ir" com FC <135 por 20 s) + Z2 15 min (118-132) + volta calma.
+  Se no último tiro a FC nunca chegar a 145, ou uma recuperação não descer de 135 em 5 min, pula para o Z2.
 - Tipo 4, rodagem longa: 75-80 min Z2; banana passa aos 60 min
 - Aquecimento e volta calma são passos abertos (terminam no botão).
 - Ao passar de 160 na subida: marcha mais leve, baixar cadência (piso 70), ziguezague, aliviar.

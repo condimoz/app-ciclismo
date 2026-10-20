@@ -5,8 +5,9 @@ e conduz treinos guiados por zona, com alertas sonoros, de voz e vibração.
 
 ## Funciona assim
 - Conecta via **Web Bluetooth** (serviço Heart Rate 0x180D). **Chrome no Android**; não funciona no iPhone.
-- Treinos: Tipo 1-4 de bike e modo Livre. Passos abertos avançam no botão **PRÓXIMO**;
+- Treinos: Tipo 1-4 de bike, **Tipo 3 · Tiros em subida (4×6)** e modo Livre. Passos abertos avançam no botão **PRÓXIMO**;
   recuperação termina sozinha quando a FC fica abaixo do limite de forma estável.
+- Bipe de fim e de início de cada etapa, contagem nos últimos 10 s das etapas por tempo; tela colorida abaixo / no alvo / acima da faixa do passo.
 - Avisos: FC alta, FC baixa, teto, "agir" (subida) e perda de sinal. Lembrete de banana passa aos 60 min no Tipo 4.
 - Ao fim: tempo por zona, deriva cardíaca, tabela por volta e exportação **TCX** e **CSV** (com intervalos RR).
 - Zonas e limites editáveis em Ajustes. A tela fica acesa durante o treino (Wake Lock).
